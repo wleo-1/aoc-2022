@@ -1,3 +1,3 @@
 pub fn run() {
-    println!("Part two: rather unfortunate...");
+    println!("Part two: Tada...");
 }
