@@ -1,29 +1,8 @@
 use aoc::Itertools;
 
 pub fn run() {
-    let mut map = load_map();
-    let instr_txt = std::fs::read_to_string("day-22/instructions.txt").unwrap();
+    let (mut map, instr_txt) = load_map("day-22/input.txt");
     let mut instr = instr_txt.chars().peekable();
-
-    fn go_forward(map: &mut Map) {
-        match map.facing {
-            0 => go_right(map),
-            1 => go_down(map),
-            2 => go_left(map),
-            3 => go_up(map),
-            _ => panic!(),
-        }
-    }
-
-    fn turn_right(map: &mut Map) {
-        map.facing += 1;
-        map.facing %= 4;
-    }
-
-    fn turn_left(map: &mut Map) {
-        map.facing += 3;
-        map.facing %= 4;
-    }
 
     while let Some(char) = instr.peek() {
         match char {
@@ -35,26 +14,33 @@ pub fn run() {
                     .unwrap();
 
                 for _ in 0..num {
-                    go_forward(&mut map);
+                    match map.facing {
+                        0 => horizontal(&mut map, 1),
+                        1 => vertical(&mut map, 1),
+                        2 => horizontal(&mut map, -1),
+                        3 => vertical(&mut map, -1),
+                        _ => panic!(),
+                    }
                 }
             }
             'R' => {
                 instr.next();
-                turn_right(&mut map);
+
+                map.facing += 1;
+                map.facing %= 4;
             }
             'L' => {
                 instr.next();
-                turn_left(&mut map);
+
+                map.facing += 3;
+                map.facing %= 4;
             }
             _ => panic!(),
         }
     }
 
     let answer = (map.curr_row + 1) * 1000 + (map.curr_col + 1) * 4 + map.facing as usize;
-    println!(
-        "Part one: {answer}, pos: ({}, {}), facing: {}",
-        map.curr_col, map.curr_row, map.facing
-    );
+    println!("Part one: {answer}");
 }
 
 // wrapping horizontally - easy
@@ -78,8 +64,9 @@ enum Tile {
     Wall,
 }
 
-fn load_map() -> Map {
-    let map_txt = std::fs::read_to_string("day-22/map.txt").unwrap();
+fn load_map(path: &str) -> (Map, String) {
+    let map_txt = std::fs::read_to_string(path).unwrap();
+    let mut lines = map_txt.lines();
 
     // starting pos is (0, 50)
     let mut map = Map {
@@ -89,7 +76,11 @@ fn load_map() -> Map {
         facing: 0,
     };
 
-    for line in map_txt.lines() {
+    while let Some(line) = lines.next() {
+        if line.is_empty() {
+            break;
+        }
+
         let mut chars = line.chars();
         let mut row = Row {
             offset: chars.peeking_take_while(|char| *char == ' ').count(),
@@ -109,107 +100,46 @@ fn load_map() -> Map {
         map.rows.push(row);
     }
 
-    map
+    (map, lines.next().unwrap().to_string())
 }
 
-fn go_right(map: &mut Map) {
+fn horizontal(map: &mut Map, shift: isize) {
     let row = &map.rows[map.curr_row];
+    let col = shift
+        .wrapping_add_unsigned(map.curr_col - row.offset)
+        .rem_euclid(row.tiles.len() as isize) as usize;
 
-    match row.tiles.get(map.curr_col - row.offset + 1) {
-        Some(Tile::Empty) => map.curr_col += 1,
-        Some(Tile::Wall) => (),
-        None => match row.tiles.first().unwrap() {
-            Tile::Empty => map.curr_col = row.offset,
-            Tile::Wall => (),
-        },
+    if let Tile::Empty = row.tiles[col] {
+        map.curr_col = row.offset + col;
     }
 }
 
-fn go_left(map: &mut Map) {
-    let row = &map.rows[map.curr_row];
+fn vertical(map: &mut Map, shift: isize) {
+    fn get_row(map: &Map, curr_row: usize, shift: isize) -> Option<usize> {
+        let idx = curr_row.checked_add_signed(shift)?;
+        let row = map.rows.get(idx)?;
 
-    match map
-        .curr_col
-        .checked_sub(row.offset + 1)
-        .and_then(|idx| row.tiles.get(idx))
-    {
-        Some(Tile::Empty) => map.curr_col -= 1,
-        Some(Tile::Wall) => (),
-        None => match row.tiles.last().unwrap() {
-            Tile::Empty => map.curr_col = row.offset + row.tiles.len() - 1,
-            Tile::Wall => (),
-        },
+        let min = map.curr_col >= row.offset;
+        let max = map.curr_col < row.offset + row.tiles.len();
+        (min && max).then_some(idx)
     }
-}
 
-fn go_down(map: &mut Map) {
-    if let Some(row) = map.rows.get(map.curr_row + 1) {
-        if map.curr_col >= row.offset && map.curr_col < row.offset + row.tiles.len() {
-            match row.tiles[map.curr_col - row.offset] {
-                Tile::Empty => map.curr_row += 1,
-                Tile::Wall => (),
-            }
-
-            return;
+    fn set_if_empty(map: &mut Map, idx: usize) {
+        let row = &map.rows[idx];
+        if let Tile::Empty = row.tiles[map.curr_col - row.offset] {
+            map.curr_row = idx;
         }
     }
 
-    let return_row = map.curr_row;
-
-    loop {
-        if let Some(row) = map
-            .curr_row
-            .checked_sub(1)
-            .and_then(|idx| map.rows.get(idx))
-        {
-            if map.curr_col >= row.offset && map.curr_col < row.offset + row.tiles.len() {
-                map.curr_row -= 1;
-                continue;
-            }
-        }
-
-        let row = &map.rows[map.curr_row];
-        match row.tiles[map.curr_col - row.offset] {
-            Tile::Empty => (),
-            Tile::Wall => map.curr_row = return_row,
-        }
-
-        break;
-    }
-}
-
-fn go_up(map: &mut Map) {
-    if let Some(row) = map
-        .curr_row
-        .checked_sub(1)
-        .and_then(|idx| map.rows.get(idx))
-    {
-        if map.curr_col >= row.offset && map.curr_col < row.offset + row.tiles.len() {
-            match row.tiles[map.curr_col - row.offset] {
-                Tile::Empty => map.curr_row -= 1,
-                Tile::Wall => (),
-            }
-
-            return;
-        }
+    if let Some(idx) = get_row(map, map.curr_row, shift) {
+        set_if_empty(map, idx);
+        return;
     }
 
-    let return_row = map.curr_row;
-
-    loop {
-        if let Some(row) = map.rows.get(map.curr_row + 1) {
-            if map.curr_col >= row.offset && map.curr_col < row.offset + row.tiles.len() {
-                map.curr_row += 1;
-                continue;
-            }
-        }
-
-        let row = &map.rows[map.curr_row];
-        match row.tiles[map.curr_col - row.offset] {
-            Tile::Empty => (),
-            Tile::Wall => map.curr_row = return_row,
-        }
-
-        break;
+    let mut curr_row = map.curr_row;
+    while let Some(idx) = get_row(map, curr_row, -shift) {
+        curr_row = idx;
     }
+
+    set_if_empty(map, curr_row);
 }
